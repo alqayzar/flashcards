@@ -28,6 +28,14 @@ export interface Card {
   createdAt: number
   updatedAt: number
   /**
+   * Id de la carte d'origine dont celle-ci est l'inverse (recto/verso
+   * permutés). Contenu (recto/verso/images/tags) synchronisé automatiquement
+   * à chaque modification de l'originale ; non modifiable/supprimable/
+   * duplicable indépendamment. La progression de révision, elle, reste
+   * indépendante entre les deux cartes.
+   */
+  reversedFrom?: string
+  /**
    * État de révision SRS, indexé par id de stratégie. Une carte peut avoir
    * une progression différente selon la stratégie utilisée pour la réviser
    * — changer de stratégie active n'écrase donc pas l'historique accumulé

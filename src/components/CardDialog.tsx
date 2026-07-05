@@ -25,7 +25,7 @@ interface CardDialogProps {
   card?: Card
   tags: Tag[]
   onCreateTag: (name: string, color: number) => Promise<Tag>
-  onSave: (data: CardInput) => Promise<void>
+  onSave: (data: CardInput, createReversed: boolean) => Promise<void>
 }
 
 function initialImg(id: string | undefined): ImgState {
@@ -46,6 +46,7 @@ export function CardDialog({
   const [backImg, setBackImg] = useState<ImgState>({ kind: "none" })
   const [tagIds, setTagIds] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
+  const [createReversed, setCreateReversed] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -56,6 +57,7 @@ export function CardDialog({
       setBackImg(initialImg(card?.backImage))
       setTagIds(card?.tagIds ?? [])
       setNewTag("")
+      setCreateReversed(false)
     }
   }, [open, card])
 
@@ -111,7 +113,7 @@ export function CardDialog({
         resolveImage(frontImg, card?.frontImage),
         resolveImage(backImg, card?.backImage),
       ])
-      await onSave({ front, back, tagIds, frontImage, backImage })
+      await onSave({ front, back, tagIds, frontImage, backImage }, createReversed)
       onOpenChange(false)
     } finally {
       setSaving(false)
@@ -199,6 +201,25 @@ export function CardDialog({
                 </div>
               )}
             </div>
+
+            {!card && (
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-card/40 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={createReversed}
+                  onChange={(e) => setCreateReversed(e.target.checked)}
+                  className="mt-0.5 size-4 accent-primary"
+                />
+                <span>
+                  Créer aussi la carte inversée
+                  <span className="block text-xs text-muted-foreground">
+                    Recto et verso permutés. Elle apparaîtra juste après
+                    celle-ci, liée : la modifier ici la met aussi à jour, mais
+                    sa progression de révision lui est propre.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
         </div>
 

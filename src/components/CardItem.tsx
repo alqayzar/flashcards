@@ -1,5 +1,13 @@
 import { useState } from "react"
-import { ChevronDown, Clock, Copy, MoreVertical, Pencil, Trash2 } from "lucide-react"
+import {
+  ArrowLeftRight,
+  ChevronDown,
+  Clock,
+  Copy,
+  MoreVertical,
+  Pencil,
+  Trash2,
+} from "lucide-react"
 
 import type { Card as CardType, Tag } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -21,6 +29,13 @@ interface CardItemProps {
   activeStrategyId?: string
   /** horodatage courant (mis à jour en temps réel par l'appelant) */
   now: number
+  /**
+   * Carte d'origine, si `card` est sa carte inversée liée. Dans ce cas,
+   * modifier/dupliquer/supprimer ne sont pas proposés (gérés uniquement
+   * depuis l'originale) — seule la progression de révision reste indépendante.
+   */
+  linkedOriginal?: CardType
+  className?: string
   onEdit: () => void
   onDuplicate: () => void
   onDelete: () => void
@@ -106,12 +121,15 @@ export function CardItem({
   tags,
   activeStrategyId,
   now,
+  linkedOriginal,
+  className,
   onEdit,
   onDuplicate,
   onDelete,
   onResetDue,
 }: CardItemProps) {
   const [expanded, setExpanded] = useState(false)
+  const isReversed = !!linkedOriginal
   const cardTags = tags.filter((t) => card.tagIds.includes(t.id))
   const dueInfo = computeDueInfo(card, activeStrategyId, now)
   const frontImageUrl = useImageUrl(card.frontImage)
@@ -120,7 +138,11 @@ export function CardItem({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-xl border border-border/70 bg-card p-4 shadow-sm transition-colors hover:border-primary/30"
+        "flex flex-col rounded-xl border p-4 shadow-sm transition-colors",
+        isReversed
+          ? "border-dashed border-border/50 bg-card/50 hover:border-primary/20"
+          : "border-border/70 bg-card hover:border-primary/30",
+        className
       )}
     >
       <div className="flex items-center justify-between gap-2">
@@ -128,6 +150,11 @@ export function CardItem({
           <DueProgress dueInfo={dueInfo} />
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {isReversed && (
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <ArrowLeftRight className="size-3 shrink-0" /> {linkedOriginal.front || "(vide)"}
+            </div>
+          )}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -153,19 +180,27 @@ export function CardItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onEdit}>
-                <Pencil /> Modifier
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onDuplicate}>
-                <Copy /> Dupliquer
-              </DropdownMenuItem>
+              {!isReversed && (
+                <>
+                  <DropdownMenuItem onClick={onEdit}>
+                    <Pencil /> Modifier
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onDuplicate}>
+                    <Copy /> Dupliquer
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem onClick={onResetDue}>
                 <Clock /> Réinitialiser l'échéance
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                <Trash2 /> Supprimer
-              </DropdownMenuItem>
+              {!isReversed && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                    <Trash2 /> Supprimer
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

@@ -110,6 +110,22 @@ export function FolderPage({ folderId }: FolderPageProps) {
     return cards.filter((c) => c.tagIds.some((id) => selected.has(id)))
   }, [cards, selected])
 
+  // Regroupe chaque originale avec sa carte inversée liée (le cas échéant) :
+  // affichées comme une seule cellule de grille, l'inversée empilée juste
+  // sous l'originale — quel que soit le nombre de colonnes de la grille.
+  const cardGroups = useMemo(() => {
+    const reversedByOriginal = new Map<string, Card>()
+    for (const c of filteredCards) {
+      if (c.reversedFrom) reversedByOriginal.set(c.reversedFrom, c)
+    }
+    return filteredCards
+      .filter((c) => !c.reversedFrom)
+      .map((original) => ({
+        original,
+        reversed: reversedByOriginal.get(original.id),
+      }))
+  }, [filteredCards])
+
   // Cartes proposées en révision : neuves ou dont l'échéance (pour la
   // stratégie active) est passée. Tant que la stratégie active n'est pas
   // encore chargée, aucune carte n'est due.
@@ -153,9 +169,9 @@ export function FolderPage({ folderId }: FolderPageProps) {
     [folderId, loadTags]
   )
 
-  async function handleSaveCard(data: CardInput) {
+  async function handleSaveCard(data: CardInput, createReversed: boolean) {
     if (editingCard) await updateCard(editingCard, data)
-    else await createCard(folderId, data)
+    else await createCard(folderId, data, createReversed)
     await loadCards()
   }
 
@@ -294,24 +310,40 @@ export function FolderPage({ folderId }: FolderPageProps) {
       {/* Grille de cartes */}
       {cards.length === 0 ? (
         <EmptyCards onCreate={openCreate} />
-      ) : filteredCards.length === 0 ? (
+      ) : cardGroups.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border/70 bg-card/30 px-6 py-16 text-center text-sm text-muted-foreground">
           Aucune flashcard ne correspond aux tags sélectionnés.
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredCards.map((card) => (
-            <CardItem
-              key={card.id}
-              card={card}
-              tags={tags}
-              activeStrategyId={activeStrategyId}
-              now={now}
-              onEdit={() => openEdit(card)}
-              onDuplicate={() => handleDuplicateCard(card)}
-              onDelete={() => setDeletingCard(card)}
-              onResetDue={() => handleResetDue(card)}
-            />
+          {cardGroups.map(({ original, reversed }) => (
+            <div key={original.id}>
+              <CardItem
+                card={original}
+                tags={tags}
+                activeStrategyId={activeStrategyId}
+                now={now}
+                className={reversed ? "relative z-10" : undefined}
+                onEdit={() => openEdit(original)}
+                onDuplicate={() => handleDuplicateCard(original)}
+                onDelete={() => setDeletingCard(original)}
+                onResetDue={() => handleResetDue(original)}
+              />
+              {reversed && (
+                <CardItem
+                  card={reversed}
+                  tags={tags}
+                  activeStrategyId={activeStrategyId}
+                  now={now}
+                  linkedOriginal={original}
+                  className="relative z-0 -mt-3 mx-1 shadow-none"
+                  onEdit={() => openEdit(reversed)}
+                  onDuplicate={() => handleDuplicateCard(reversed)}
+                  onDelete={() => setDeletingCard(reversed)}
+                  onResetDue={() => handleResetDue(reversed)}
+                />
+              )}
+            </div>
           ))}
           <button
             type="button"

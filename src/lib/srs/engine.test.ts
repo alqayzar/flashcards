@@ -142,12 +142,12 @@ describe("formatButtonEffect", () => {
       formatButtonEffect(
         graduateButton({ easeDelta: 15, intervalMultiplier: 1.3 })
       )
-    ).toBe("ease +15% · intervalle ×1.3")
+    ).toBe("+15% · ×1.3")
     expect(
       formatButtonEffect(
         graduateButton({ easeDelta: -15, intervalMultiplier: 0.5 })
       )
-    ).toBe("ease -15% · intervalle ×0.5")
+    ).toBe("-15% · ×0.5")
   })
 })
 
