@@ -62,6 +62,9 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
   const [strategy, setStrategy] = useState<SrsStrategy | null>(null)
+  // Brouillon de réponse : simple aide au rappel actif avant de révéler le
+  // verso, jamais enregistré nulle part.
+  const [attempt, setAttempt] = useState("")
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const backRef = useRef<HTMLDivElement>(null)
@@ -80,6 +83,7 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
       setDeck(cardsRef.current)
       setIndex(0)
       setRevealed(false)
+      setAttempt("")
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -106,6 +110,7 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
   // (utilisé aussi bien après notation qu'après un simple ignorer).
   function advancePast(cardId: string) {
     setRevealed(false)
+    setAttempt("")
     if (scrollRef.current) scrollRef.current.scrollTop = 0
     const next = deck.filter((c) => c.id !== cardId)
     if (next.length === 0) {
@@ -164,6 +169,12 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
+      // Ne pas intercepter la saisie dans le textarea de réponse (espace,
+      // entrée, chiffres doivent s'y taper normalement).
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT")) {
+        return
+      }
       if (e.key === " " || e.key === "Enter") {
         e.preventDefault()
         setRevealed(true)
@@ -229,6 +240,13 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
               imageId={card.frontImage}
               onClick={() => setRevealed(true)}
               className="w-full flex-1"
+            />
+            <textarea
+              value={attempt}
+              onChange={(e) => setAttempt(e.target.value)}
+              placeholder="Écris ta réponse ici pour t'aider à te souvenir (optionnel, non enregistré)…"
+              rows={3}
+              className="w-full shrink-0 resize-none rounded-xl border border-border/70 bg-card/60 p-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary/50"
             />
             {revealed && (
               <div ref={backRef} className="w-full shrink-0">
