@@ -146,7 +146,7 @@ export function StrategyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         onOpenAutoFocus={(e) => e.preventDefault()}
-        className="max-h-[90dvh] overflow-y-auto sm:max-w-xl"
+        className="top-0 left-0 flex h-dvh w-screen max-w-none max-h-none translate-x-0 translate-y-0 flex-col rounded-none border-0"
       >
         <DialogHeader>
           <DialogTitle>
@@ -159,7 +159,7 @@ export function StrategyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
+        <div className="grid gap-4 overflow-y-auto">
           <div className="grid gap-2">
             <Label htmlFor="strategy-name">Nom</Label>
             <Input
