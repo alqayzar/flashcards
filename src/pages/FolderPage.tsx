@@ -9,6 +9,7 @@ import {
 
 import type { Card, CardInput, Folder, Tag } from "@/lib/types"
 import {
+  addReverseCard,
   createCard,
   createTag,
   deleteCard,
@@ -18,13 +19,18 @@ import {
   getFolder,
   listCards,
   listTags,
+  removeReverseCard,
   resetCardDue,
   setFilter,
   updateCard,
   updateTag,
 } from "@/lib/repo"
 import { isCardDue } from "@/lib/srs/engine"
-import { ensureDefaultStrategy, getActiveStrategyId } from "@/lib/srs/repo"
+import {
+  ensureDefaultStrategy,
+  ensureFastStrategy,
+  getActiveStrategyId,
+} from "@/lib/srs/repo"
 import { navigate } from "@/lib/useHashRoute"
 import { useNow } from "@/lib/useNow"
 import { Button } from "@/components/ui/button"
@@ -53,6 +59,7 @@ export function FolderPage({ folderId }: FolderPageProps) {
   const [editingCard, setEditingCard] = useState<Card | undefined>()
   const [deletingCard, setDeletingCard] = useState<Card | undefined>()
   const [deletingTag, setDeletingTag] = useState<Tag | undefined>()
+  const [deletingReverseOf, setDeletingReverseOf] = useState<Card | undefined>()
   const [studyOpen, setStudyOpen] = useState(false)
   const [nothingToReviewOpen, setNothingToReviewOpen] = useState(false)
   const [activeStrategyId, setActiveStrategyId] = useState<string>()
@@ -60,9 +67,11 @@ export function FolderPage({ folderId }: FolderPageProps) {
   const now = useNow()
 
   useEffect(() => {
-    ensureDefaultStrategy().then(async () => {
-      setActiveStrategyId(await getActiveStrategyId())
-    })
+    ensureDefaultStrategy()
+      .then(ensureFastStrategy)
+      .then(async () => {
+        setActiveStrategyId(await getActiveStrategyId())
+      })
   }, [])
 
   const loadFolder = useCallback(async () => {
@@ -177,6 +186,17 @@ export function FolderPage({ folderId }: FolderPageProps) {
 
   async function handleDuplicateCard(card: Card) {
     await duplicateCard(card)
+    await loadCards()
+  }
+
+  async function handleCreateReverse(card: Card) {
+    await addReverseCard(card)
+    await loadCards()
+  }
+
+  async function handleDeleteReverse() {
+    if (!deletingReverseOf) return
+    await removeReverseCard(deletingReverseOf)
     await loadCards()
   }
 
@@ -317,17 +337,20 @@ export function FolderPage({ folderId }: FolderPageProps) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {cardGroups.map(({ original, reversed }) => (
-            <div key={original.id}>
+            <div key={original.id} className="min-w-0">
               <CardItem
                 card={original}
                 tags={tags}
                 activeStrategyId={activeStrategyId}
                 now={now}
+                hasReversedPair={!!reversed}
                 className={reversed ? "relative z-10" : undefined}
                 onEdit={() => openEdit(original)}
                 onDuplicate={() => handleDuplicateCard(original)}
                 onDelete={() => setDeletingCard(original)}
                 onResetDue={() => handleResetDue(original)}
+                onCreateReverse={() => handleCreateReverse(original)}
+                onDeleteReverse={() => setDeletingReverseOf(original)}
               />
               {reversed && (
                 <CardItem
@@ -341,6 +364,8 @@ export function FolderPage({ folderId }: FolderPageProps) {
                   onDuplicate={() => handleDuplicateCard(reversed)}
                   onDelete={() => setDeletingCard(reversed)}
                   onResetDue={() => handleResetDue(reversed)}
+                  onCreateReverse={() => handleCreateReverse(reversed)}
+                  onDeleteReverse={() => setDeletingReverseOf(reversed)}
                 />
               )}
             </div>
@@ -375,6 +400,7 @@ export function FolderPage({ folderId }: FolderPageProps) {
         onOpenChange={setCardDialogOpen}
         card={editingCard}
         tags={tags}
+        defaultTagIds={[...selected]}
         onCreateTag={handleCreateTag}
         onSave={handleSaveCard}
       />
@@ -391,6 +417,13 @@ export function FolderPage({ folderId }: FolderPageProps) {
         title="Supprimer ce tag ?"
         description={`Le tag « ${deletingTag?.name} » sera retiré de toutes les flashcards du dossier.`}
         onConfirm={handleDeleteTag}
+      />
+      <ConfirmDialog
+        open={!!deletingReverseOf}
+        onOpenChange={(o) => !o && setDeletingReverseOf(undefined)}
+        title="Supprimer la carte inversée ?"
+        description="Seule la carte inversée liée est supprimée ; l'originale reste intacte."
+        onConfirm={handleDeleteReverse}
       />
       <InfoDialog
         open={nothingToReviewOpen}

@@ -9,6 +9,7 @@ import {
   deleteAllStrategies,
   deleteStrategy,
   ensureDefaultStrategy,
+  ensureFastStrategy,
   getActiveStrategyId,
   listStrategies,
   setActiveStrategyId,
@@ -43,7 +44,9 @@ export function SettingsPage() {
   }
 
   useEffect(() => {
-    ensureDefaultStrategy().then(refresh)
+    ensureDefaultStrategy()
+      .then(ensureFastStrategy)
+      .then(refresh)
   }, [])
 
   function openCreate() {
@@ -154,14 +157,14 @@ export function SettingsPage() {
               onClick={() => setWipeAllOpen(true)}
               className="w-full sm:w-auto"
             >
-              <Trash2 /> Tout supprimer (dossiers, tags, images)
+              <Trash2 /> Supprimer les dossiers
             </Button>
             <Button
               variant="destructive"
               onClick={() => setResetStrategiesOpen(true)}
               className="w-full sm:w-auto"
             >
-              <Trash2 /> Réinitialiser les stratégies
+              <Trash2 /> Supprimer les stratégies
             </Button>
           </div>
         </SettingsSection>

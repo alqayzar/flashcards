@@ -110,8 +110,10 @@ describe("formatShortDuration", () => {
     expect(formatShortDuration(4 * MONTH)).toBe("4mois")
   })
 
-  it("arrondit à l'entier le plus proche", () => {
-    expect(formatShortDuration(90 * SECOND)).toBe("2m") // 1.5min arrondi
+  it("arrondit à une décimale, omise si superflue", () => {
+    expect(formatShortDuration(90 * SECOND)).toBe("1.5m")
+    expect(formatShortDuration(2.5 * DAY)).toBe("2.5j")
+    expect(formatShortDuration(3.445 * DAY)).toBe("3.4j")
   })
 })
 

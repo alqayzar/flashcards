@@ -35,11 +35,15 @@ interface CardItemProps {
    * depuis l'originale) — seule la progression de révision reste indépendante.
    */
   linkedOriginal?: CardType
+  /** cette carte (originale) a une carte inversée liée juste en dessous */
+  hasReversedPair?: boolean
   className?: string
   onEdit: () => void
   onDuplicate: () => void
   onDelete: () => void
   onResetDue: () => void
+  onCreateReverse: () => void
+  onDeleteReverse: () => void
 }
 
 interface DueInfo {
@@ -122,11 +126,14 @@ export function CardItem({
   activeStrategyId,
   now,
   linkedOriginal,
+  hasReversedPair,
   className,
   onEdit,
   onDuplicate,
   onDelete,
   onResetDue,
+  onCreateReverse,
+  onDeleteReverse,
 }: CardItemProps) {
   const [expanded, setExpanded] = useState(false)
   const isReversed = !!linkedOriginal
@@ -138,10 +145,10 @@ export function CardItem({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-xl border p-4 shadow-sm transition-colors",
+        "min-w-0 flex flex-col rounded-xl border-2 p-4 shadow-sm transition-colors",
         isReversed
-          ? "border-dashed border-border/50 bg-card/50 hover:border-primary/20"
-          : "border-border/70 bg-card hover:border-primary/30",
+          ? "border-border/70 bg-card/50 hover:border-primary/30"
+          : "border-border bg-card hover:border-primary/40",
         className
       )}
     >
@@ -150,11 +157,6 @@ export function CardItem({
           <DueProgress dueInfo={dueInfo} />
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          {isReversed && (
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <ArrowLeftRight className="size-3 shrink-0" /> {linkedOriginal.front || "(vide)"}
-            </div>
-          )}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -188,6 +190,15 @@ export function CardItem({
                   <DropdownMenuItem onClick={onDuplicate}>
                     <Copy /> Dupliquer
                   </DropdownMenuItem>
+                  {!hasReversedPair ? (
+                    <DropdownMenuItem onClick={onCreateReverse}>
+                      <ArrowLeftRight /> Créer la carte inversée
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem variant="destructive" onClick={onDeleteReverse}>
+                      <ArrowLeftRight /> Supprimer la carte inversée
+                    </DropdownMenuItem>
+                  )}
                 </>
               )}
               <DropdownMenuItem onClick={onResetDue}>
@@ -210,7 +221,7 @@ export function CardItem({
         type="button"
         onClick={() => setExpanded((e) => !e)}
         className={cn(
-          "flex flex-1 flex-col justify-center gap-2 py-2 text-left cursor-pointer",
+          "flex flex-1 flex-col justify-center gap-2 py-2 text-left cursor-pointer transition-transform active:scale-[0.99]",
           !expanded && "overflow-hidden"
         )}
       >
@@ -254,15 +265,27 @@ export function CardItem({
       </button>
 
       {cardTags.length > 0 && (
-        <div className="flex flex-wrap gap-1 pt-1">
-          {cardTags.slice(0, 4).map((t) => (
-            <TagChip key={t.id} name={t.name} color={t.color} size="sm" />
+        <div className="flex flex-nowrap gap-1 overflow-x-auto pt-1 pb-0.5">
+          {cardTags.map((t) => (
+            <TagChip
+              key={t.id}
+              name={t.name}
+              color={t.color}
+              size="sm"
+              className="shrink-0"
+            />
           ))}
-          {cardTags.length > 4 && (
-            <span className="text-[11px] text-muted-foreground self-center">
-              +{cardTags.length - 4}
-            </span>
-          )}
+        </div>
+      )}
+
+      {hasReversedPair && (
+        <div className="relative z-20 flex justify-center">
+          <span
+            className="absolute -bottom-7 flex size-6 items-center justify-center rounded-full border-2 border-background bg-muted text-muted-foreground shadow-sm"
+            title="A une carte inversée liée"
+          >
+            <ArrowLeftRight className="size-3.5" />
+          </span>
         </div>
       )}
     </div>

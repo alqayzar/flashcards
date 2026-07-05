@@ -50,15 +50,19 @@ export function formatDuration(duration: Duration): string {
 }
 
 /**
- * Formatte une durée en ms de façon compacte (ex. « 30s », « 10m », « 3j »),
- * en choisissant automatiquement la plus grande unité pertinente.
+ * Formatte une durée en ms de façon compacte (ex. « 30s », « 10m », « 3j »,
+ * « 2.5j »), en choisissant automatiquement la plus grande unité pertinente.
+ * Arrondi à une décimale (omise si superflue) plutôt qu'à l'unité entière :
+ * deux choix proches (ex. « Bien » à 2.5j et « Facile » à 3.4j) doivent
+ * rester visuellement distincts au lieu de tous les deux arrondir à « 3j ».
  */
 export function formatShortDuration(ms: number): string {
   let best: (typeof TIME_UNITS)[number] = TIME_UNITS[0]
   for (const u of TIME_UNITS) {
     if (ms >= u.ms) best = u
   }
-  const value = Math.round(ms / best.ms)
+  const rounded = Math.round((ms / best.ms) * 10) / 10
+  const value = Number.isInteger(rounded) ? rounded : rounded.toFixed(1)
   return `${value}${best.short}`
 }
 
@@ -254,6 +258,59 @@ export function createDefaultStrategy(name = "Par défaut"): SrsStrategy {
     buttons: createDefaultButtons(),
     createdAt: Date.now(),
     locked: true,
+  }
+}
+
+/**
+ * Stratégie « Rapide » : Encore/Difficile/Bien sont des paliers courts fixes
+ * (façon Encore) qui ne font pas progresser la carte, seule Facile la fait
+ * réellement progresser. Non verrouillée (librement modifiable/supprimable).
+ *
+ * Pourquoi pas des choix « graduate » pour Difficile/Bien avec ces mêmes
+ * durées ? Dans ce moteur, l'intervalle d'un choix « graduate » se calcule
+ * en multipliant l'intervalle PRÉCÉDENT (pas seulement celui d'une carte
+ * neuve) par ease factor × multiplicateur. Pour obtenir ~8-15 minutes sur
+ * une carte neuve (base 1 jour), il faudrait un multiplicateur minuscule
+ * (~0.002-0.004) — mais ce même multiplicateur, réappliqué à la révision
+ * suivante (base = l'intervalle réel précédent, désormais ~8-15 min),
+ * ferait s'effondrer l'intervalle vers quasi zéro au lieu de croître. D'où
+ * le choix de paliers fixes (« relearn ») pour ces trois choix.
+ */
+export function createFastStrategy(name = "Rapide"): SrsStrategy {
+  return {
+    id: uid(),
+    name,
+    buttons: [
+      {
+        id: uid(),
+        label: "Encore",
+        kind: "relearn",
+        easeDelta: -20,
+        relearnDelay: { value: 30, unit: "seconds" },
+      },
+      {
+        id: uid(),
+        label: "Difficile",
+        kind: "relearn",
+        easeDelta: -15,
+        relearnDelay: { value: 8, unit: "minutes" },
+      },
+      {
+        id: uid(),
+        label: "Bien",
+        kind: "relearn",
+        easeDelta: 0,
+        relearnDelay: { value: 15, unit: "minutes" },
+      },
+      {
+        id: uid(),
+        label: "Facile",
+        kind: "graduate",
+        easeDelta: 1,
+        intervalMultiplier: 1,
+      },
+    ],
+    createdAt: Date.now(),
   }
 }
 

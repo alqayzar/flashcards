@@ -8,7 +8,7 @@
   Base sombre, sobre, encre bleu-nuit — accents candy-pop vitaminés.
 */
 :root {
-  --radius: 0.85rem;
+  --radius: 1.1rem;
 
   /* Surfaces — encre nocturne */
   --background: oklch(0.17 0.018 275);

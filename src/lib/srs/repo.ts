@@ -6,11 +6,12 @@
  */
 import { kvDelete, kvEntriesByPrefix, kvGet, kvSet } from "@/lib/idb"
 import { uid } from "@/lib/id"
-import { createDefaultStrategy } from "./engine"
+import { createDefaultStrategy, createFastStrategy } from "./engine"
 import type { SrsButton, SrsStrategy } from "./types"
 
 const strategyKey = (id: string) => `strategy:${id}`
 const ACTIVE_STRATEGY_KEY = "settings:activeStrategyId"
+const FAST_STRATEGY_SEEDED_KEY = "settings:fastStrategySeeded"
 
 export async function listStrategies(): Promise<SrsStrategy[]> {
   const entries = await kvEntriesByPrefix<SrsStrategy>("strategy:")
@@ -125,4 +126,28 @@ async function ensureDefaultStrategyOnce(): Promise<void> {
   if (!activeId || !existing.some((s) => s.id === activeId)) {
     await setActiveStrategyId(existing[0].id)
   }
+}
+
+let ensureFastStrategyPromise: Promise<void> | null = null
+
+/**
+ * Propose une fois la stratégie « Rapide » (paliers courts), sans écraser
+ * les stratégies existantes ni changer la stratégie active. Idempotent —
+ * même mécanisme anti-course que `ensureDefaultStrategy`.
+ */
+export function ensureFastStrategy(): Promise<void> {
+  if (!ensureFastStrategyPromise) {
+    ensureFastStrategyPromise = ensureFastStrategyOnce().finally(() => {
+      ensureFastStrategyPromise = null
+    })
+  }
+  return ensureFastStrategyPromise
+}
+
+async function ensureFastStrategyOnce(): Promise<void> {
+  const seeded = await kvGet<boolean>(FAST_STRATEGY_SEEDED_KEY)
+  if (seeded) return
+  await kvSet(FAST_STRATEGY_SEEDED_KEY, true)
+  const strategy = createFastStrategy()
+  await kvSet(strategyKey(strategy.id), strategy)
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Plus, Check } from "lucide-react"
 
 import type { Card, CardInput, Tag } from "@/lib/types"
@@ -24,6 +24,8 @@ interface CardDialogProps {
   /** carte à éditer, ou undefined pour une création */
   card?: Card
   tags: Tag[]
+  /** tags pré-cochés à la création (ex. les tags actuellement actifs du filtre) */
+  defaultTagIds?: string[]
   onCreateTag: (name: string, color: number) => Promise<Tag>
   onSave: (data: CardInput, createReversed: boolean) => Promise<void>
 }
@@ -37,6 +39,7 @@ export function CardDialog({
   onOpenChange,
   card,
   tags,
+  defaultTagIds,
   onCreateTag,
   onSave,
 }: CardDialogProps) {
@@ -49,17 +52,29 @@ export function CardDialog({
   const [createReversed, setCreateReversed] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // `card`/`defaultTagIds` peuvent changer de référence à chaque re-render du
+  // parent (ex. `defaultTagIds={[...selected]}` recrée un tableau à chaque
+  // fois) sans que ça signifie une vraie réouverture : on ne réinitialise le
+  // formulaire qu'à la transition réelle d'ouverture, pas à chaque re-render
+  // pendant que le dialog est déjà ouvert (sinon la sélection manuelle de
+  // tags se fait aussitôt écraser).
+  const latest = useRef({ card, defaultTagIds })
+  useEffect(() => {
+    latest.current = { card, defaultTagIds }
+  })
+
   useEffect(() => {
     if (open) {
+      const { card, defaultTagIds } = latest.current
       setFront(card?.front ?? "")
       setBack(card?.back ?? "")
       setFrontImg(initialImg(card?.frontImage))
       setBackImg(initialImg(card?.backImage))
-      setTagIds(card?.tagIds ?? [])
+      setTagIds(card?.tagIds ?? defaultTagIds ?? [])
       setNewTag("")
       setCreateReversed(false)
     }
-  }, [open, card])
+  }, [open])
 
   function toggleTag(id: string) {
     setTagIds((cur) =>

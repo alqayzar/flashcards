@@ -230,6 +230,29 @@ export async function listCards(folderId: string): Promise<Card[]> {
   return entries.map((e) => e.value).sort((a, b) => b.createdAt - a.createdAt)
 }
 
+/** Crée la carte inversée liée à `source` (recto/verso permutés, images partagées). */
+async function createReversedCard(source: Card): Promise<Card> {
+  await Promise.all([
+    source.frontImage ? retainImage(source.frontImage) : Promise.resolve(),
+    source.backImage ? retainImage(source.backImage) : Promise.resolve(),
+  ])
+  const now = Date.now()
+  const reversed: Card = {
+    id: uid(),
+    folderId: source.folderId,
+    front: source.back,
+    back: source.front,
+    frontImage: source.backImage,
+    backImage: source.frontImage,
+    tagIds: [...source.tagIds],
+    reversedFrom: source.id,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await kvSet(cardKey(source.folderId, reversed.id), reversed)
+  return reversed
+}
+
 /**
  * Crée une carte et, si `createReversed` est vrai, sa carte inversée liée
  * (recto/verso permutés, mêmes tags, images partagées par référence). La
@@ -257,27 +280,19 @@ export async function createCard(
   }
   await kvSet(cardKey(folderId, card.id), card)
 
-  if (createReversed) {
-    await Promise.all([
-      data.frontImage ? retainImage(data.frontImage) : Promise.resolve(),
-      data.backImage ? retainImage(data.backImage) : Promise.resolve(),
-    ])
-    const reversed: Card = {
-      id: uid(),
-      folderId,
-      front: data.back.trim(),
-      back: data.front.trim(),
-      frontImage: data.backImage,
-      backImage: data.frontImage,
-      tagIds: [...data.tagIds],
-      reversedFrom: card.id,
-      createdAt: now,
-      updatedAt: now,
-    }
-    await kvSet(cardKey(folderId, reversed.id), reversed)
-  }
+  if (createReversed) await createReversedCard(card)
 
   return card
+}
+
+/**
+ * Crée la carte inversée liée d'une carte existante qui n'en a pas encore
+ * (no-op si elle en a déjà une).
+ */
+export async function addReverseCard(card: Card): Promise<Card | undefined> {
+  const siblings = await listCards(card.folderId)
+  if (siblings.some((c) => c.reversedFrom === card.id)) return undefined
+  return createReversedCard(card)
 }
 
 /** Ajuste le compteur de références quand une image mirroir change. */
@@ -370,6 +385,19 @@ export async function duplicateCard(card: Card): Promise<Card> {
 }
 
 /**
+ * Supprime une carte, en relâchant la référence sur ses images attachées
+ * (le blob n'est supprimé que si plus aucune carte, dans aucun dossier, ne
+ * le référence).
+ */
+async function deleteCardRaw(card: Card): Promise<void> {
+  await Promise.all([
+    kvDelete(cardKey(card.folderId, card.id)),
+    card.frontImage ? releaseImage(card.frontImage) : Promise.resolve(),
+    card.backImage ? releaseImage(card.backImage) : Promise.resolve(),
+  ])
+}
+
+/**
  * Supprime une carte. Si une carte inversée lui est liée, elle est
  * supprimée avec elle (elle ne peut pas être gérée indépendamment).
  */
@@ -377,21 +405,18 @@ export async function deleteCard(card: Card): Promise<void> {
   const siblings = await listCards(card.folderId)
   const reversed = siblings.find((c) => c.reversedFrom === card.id)
 
-  // Relâche la référence sur les images attachées (le blob n'est supprimé
-  // que si plus aucune carte, dans aucun dossier, ne le référence).
-  await Promise.all([
-    kvDelete(cardKey(card.folderId, card.id)),
-    card.frontImage ? releaseImage(card.frontImage) : Promise.resolve(),
-    card.backImage ? releaseImage(card.backImage) : Promise.resolve(),
-  ])
+  await deleteCardRaw(card)
+  if (reversed) await deleteCardRaw(reversed)
+}
 
-  if (reversed) {
-    await Promise.all([
-      kvDelete(cardKey(reversed.folderId, reversed.id)),
-      reversed.frontImage ? releaseImage(reversed.frontImage) : Promise.resolve(),
-      reversed.backImage ? releaseImage(reversed.backImage) : Promise.resolve(),
-    ])
-  }
+/**
+ * Supprime uniquement la carte inversée liée à `card`, sans toucher à
+ * `card` elle-même (no-op si elle n'en a pas).
+ */
+export async function removeReverseCard(card: Card): Promise<void> {
+  const siblings = await listCards(card.folderId)
+  const reversed = siblings.find((c) => c.reversedFrom === card.id)
+  if (reversed) await deleteCardRaw(reversed)
 }
 
 export async function countCards(folderId: string): Promise<number> {

@@ -42,7 +42,7 @@ export function FolderCard({
   return (
     <Card
       onClick={() => navigate(`/folder/${folder.id}`)}
-      className="group relative cursor-pointer gap-0 overflow-hidden py-0 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10"
+      className="group relative cursor-pointer gap-0 overflow-hidden py-0 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10 active:scale-[0.98]"
     >
       <div className="flex items-start justify-between gap-2 p-5">
         <div className="flex items-start gap-3 overflow-hidden">
