@@ -1,0 +1,235 @@
+import { useState } from "react"
+import { ChevronDown, Clock, Copy, MoreVertical, Pencil, Trash2 } from "lucide-react"
+
+import type { Card as CardType, Tag } from "@/lib/types"
+import { cn } from "@/lib/utils"
+import { useImageUrl } from "@/lib/useImageUrl"
+import { isCardDue, formatCountdown } from "@/lib/srs/engine"
+import { Button } from "@/components/ui/button"
+import { TagChip } from "@/components/TagChip"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+interface CardItemProps {
+  card: CardType
+  tags: Tag[]
+  activeStrategyId?: string
+  /** horodatage courant (mis à jour en temps réel par l'appelant) */
+  now: number
+  onEdit: () => void
+  onDuplicate: () => void
+  onDelete: () => void
+  onResetDue: () => void
+}
+
+interface DueInfo {
+  due: boolean
+  /** 0 (vient d'être révisée) → 1 (disponible) */
+  progress: number
+  label: string
+  /** compte à rebours compact avant échéance (ex. « 2j 3h 45m 12s ») */
+  countdown?: string
+}
+
+function computeDueInfo(
+  card: CardType,
+  activeStrategyId: string | undefined,
+  now: number
+): DueInfo {
+  const state = activeStrategyId ? card.reviewState?.[activeStrategyId] : undefined
+  if (isCardDue(state, now)) {
+    return { due: true, progress: 1, label: "Disponible" }
+  }
+  const s = state!
+  const start = s.reviewedAt ?? s.dueAt - s.intervalMs
+  const span = s.dueAt - start
+  const progress = span > 0 ? Math.min(1, Math.max(0, (now - start) / span)) : 1
+  const countdown = formatCountdown(s.dueAt - now)
+  return { due: false, progress, label: `Dans ${countdown}`, countdown }
+}
+
+/**
+ * Image pleine largeur : réduite, seul le haut est visible (rognée, avec un
+ * dégradé signalant qu'elle continue) ; dépliée, l'image entière apparaît.
+ */
+function CardImage({ src, expanded }: { src: string; expanded: boolean }) {
+  return (
+    <div
+      className={cn(
+        "relative w-full overflow-hidden",
+        !expanded && "max-h-20"
+      )}
+    >
+      <img src={src} alt="" className="w-full rounded-md" />
+      {!expanded && (
+        <div className="absolute inset-x-0 bottom-0 h-14 bg-linear-to-t from-card to-transparent" />
+      )}
+    </div>
+  )
+}
+
+function DueProgress({ dueInfo }: { dueInfo: DueInfo }) {
+  if (dueInfo.due) {
+    return (
+      <span className="flex shrink-0 items-center gap-1 text-[10px] text-emerald-400/90">
+        <span className="size-1.5 rounded-full bg-emerald-400" />
+        Disponible
+      </span>
+    )
+  }
+  return (
+    <span
+      className="flex min-w-0 flex-1 items-center gap-1.5"
+      title={dueInfo.label}
+      aria-label={dueInfo.label}
+    >
+      <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+        <span
+          className="block h-full rounded-full bg-primary/70 transition-[width]"
+          style={{ width: `${dueInfo.progress * 100}%` }}
+        />
+      </span>
+      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+        {dueInfo.countdown}
+      </span>
+    </span>
+  )
+}
+
+export function CardItem({
+  card,
+  tags,
+  activeStrategyId,
+  now,
+  onEdit,
+  onDuplicate,
+  onDelete,
+  onResetDue,
+}: CardItemProps) {
+  const [expanded, setExpanded] = useState(false)
+  const cardTags = tags.filter((t) => card.tagIds.includes(t.id))
+  const dueInfo = computeDueInfo(card, activeStrategyId, now)
+  const frontImageUrl = useImageUrl(card.frontImage)
+  const backImageUrl = useImageUrl(card.backImage)
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col rounded-xl border border-border/70 bg-card p-4 shadow-sm transition-colors hover:border-primary/30"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <DueProgress dueInfo={dueInfo} />
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setExpanded((e) => !e)}
+            title={expanded ? "Réduire" : "Développer"}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown
+              className={cn(
+                "size-3.5 transition-transform",
+                expanded && "rotate-180"
+              )}
+            />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <MoreVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil /> Modifier
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDuplicate}>
+                <Copy /> Dupliquer
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onResetDue}>
+                <Clock /> Réinitialiser l'échéance
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 /> Supprimer
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className={cn(
+          "flex flex-1 flex-col justify-center gap-2 py-2 text-left cursor-pointer",
+          !expanded && "overflow-hidden"
+        )}
+      >
+        {/* Recto */}
+        <div className="flex flex-col gap-1.5">
+          {card.front ? (
+            <p
+              className={cn(
+                "font-serif leading-snug [overflow-wrap:anywhere]",
+                !expanded && "line-clamp-2"
+              )}
+            >
+              {card.front}
+            </p>
+          ) : (
+            <span className="text-sm text-muted-foreground italic">(vide)</span>
+          )}
+          {frontImageUrl && (
+            <CardImage src={frontImageUrl} expanded={expanded} />
+          )}
+        </div>
+
+        {/* Verso, atténué */}
+        {(card.back || backImageUrl) && (
+          <div className="flex flex-col gap-1.5 border-t border-border/50 pt-2 opacity-60">
+            {card.back && (
+              <p
+                className={cn(
+                  "font-serif text-sm leading-snug [overflow-wrap:anywhere]",
+                  !expanded && "line-clamp-2"
+                )}
+              >
+                {card.back}
+              </p>
+            )}
+            {backImageUrl && (
+              <CardImage src={backImageUrl} expanded={expanded} />
+            )}
+          </div>
+        )}
+      </button>
+
+      {cardTags.length > 0 && (
+        <div className="flex flex-wrap gap-1 pt-1">
+          {cardTags.slice(0, 4).map((t) => (
+            <TagChip key={t.id} name={t.name} color={t.color} size="sm" />
+          ))}
+          {cardTags.length > 4 && (
+            <span className="text-[11px] text-muted-foreground self-center">
+              +{cardTags.length - 4}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
