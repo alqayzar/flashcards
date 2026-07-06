@@ -241,6 +241,7 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
               onClick={() => setRevealed(true)}
               className="w-full flex-1"
             />
+            
             <textarea
               value={attempt}
               onChange={(e) => setAttempt(e.target.value)}
