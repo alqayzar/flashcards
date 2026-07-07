@@ -16,6 +16,7 @@ import {
   getActiveStrategyId,
   getStrategy,
 } from "@/lib/srs/repo"
+import { renderClozeText } from "@/lib/cloze"
 import { cn } from "@/lib/utils"
 import { useImageUrl } from "@/lib/useImageUrl"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
@@ -61,6 +62,9 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
   const [deck, setDeck] = useState<Card[]>(cards)
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
+  // Pour une carte à trous (cloze) : le trou se révèle en place dans le
+  // recto avant que le verso n'apparaisse (2 étapes) ; sans effet sinon.
+  const [blankRevealed, setBlankRevealed] = useState(false)
   const [strategy, setStrategy] = useState<SrsStrategy | null>(null)
   // Brouillon de réponse : simple aide au rappel actif avant de révéler le
   // verso, jamais enregistré nulle part.
@@ -83,6 +87,7 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
       setDeck(cardsRef.current)
       setIndex(0)
       setRevealed(false)
+      setBlankRevealed(false)
       setAttempt("")
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,6 +103,17 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
   }, [open])
 
   const card = deck[index]
+  const isCloze = card?.clozeIndex !== undefined
+
+  // 1er clic/espace : révèle le trou en place (carte cloze uniquement) ;
+  // sinon (ou une fois le trou révélé) : révèle le verso.
+  function handleFrontReveal() {
+    if (isCloze && !blankRevealed) {
+      setBlankRevealed(true)
+    } else {
+      setRevealed(true)
+    }
+  }
 
   function getCardState(c: Card) {
     const stored = strategy && c.reviewState?.[strategy.id]
@@ -110,6 +126,7 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
   // (utilisé aussi bien après notation qu'après un simple ignorer).
   function advancePast(cardId: string) {
     setRevealed(false)
+    setBlankRevealed(false)
     setAttempt("")
     if (scrollRef.current) scrollRef.current.scrollTop = 0
     const next = deck.filter((c) => c.id !== cardId)
@@ -161,9 +178,9 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
 
   // Toujours à jour, pour que le raccourci clavier (souscrit une seule fois)
   // n'utilise jamais une carte / un état périmé.
-  const latest = useRef({ card, revealed, strategy })
+  const latest = useRef({ card, revealed, blankRevealed, isCloze, strategy })
   useEffect(() => {
-    latest.current = { card, revealed, strategy }
+    latest.current = { card, revealed, blankRevealed, isCloze, strategy }
   })
 
   useEffect(() => {
@@ -177,7 +194,12 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
       }
       if (e.key === " " || e.key === "Enter") {
         e.preventDefault()
-        setRevealed(true)
+        const { blankRevealed: isBlankRevealed, isCloze: cardIsCloze } = latest.current
+        if (cardIsCloze && !isBlankRevealed) {
+          setBlankRevealed(true)
+        } else {
+          setRevealed(true)
+        }
         return
       }
       const { card: c, revealed: isRevealed, strategy: strat } = latest.current
@@ -236,12 +258,16 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
         >
           <div className="flex min-h-full w-full flex-col items-center gap-4 py-4">
             <StudyFace
-              text={card.front}
+              text={
+                isCloze
+                  ? renderClozeText(card.front, card.clozeIndex!, !blankRevealed)
+                  : card.front
+              }
               imageId={card.frontImage}
-              onClick={() => setRevealed(true)}
+              onClick={handleFrontReveal}
               className="w-full flex-1"
             />
-            
+
             <textarea
               value={attempt}
               onChange={(e) => setAttempt(e.target.value)}
@@ -289,7 +315,9 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
         <p className="mt-3 shrink-0 text-center text-xs text-muted-foreground">
           {revealed && strategy
             ? `1-${strategy.buttons.length} : noter`
-            : "Espace : développer"}
+            : isCloze && !blankRevealed
+              ? "Espace : révéler le trou"
+              : "Espace : développer"}
         </p>
       </DialogContent>
     </Dialog>

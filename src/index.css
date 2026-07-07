@@ -114,3 +114,12 @@
   scrollbar-width: thin;
   scrollbar-color: var(--muted) transparent;
 }
+
+/* Scroll sans barre visible (ex. liste de tags défilable horizontalement) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

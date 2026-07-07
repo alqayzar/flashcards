@@ -36,6 +36,21 @@ export interface Card {
    */
   reversedFrom?: string
   /**
+   * Recto « texte à trous » (cloze) : présent dès que `front` contient au
+   * moins un `{{...}}`. Indique quel trou (par ordre d'apparition dans
+   * `front`) cette carte masque à l'étude ; les autres trous du même texte
+   * apparaissent en clair. `front` stocke toujours le gabarit brut complet
+   * (avec les accolades), identique sur toutes les cartes d'un même groupe.
+   */
+  clozeIndex?: number
+  /**
+   * Id de la carte d'origine (le 1er trou, clozeIndex 0) dont celle-ci est
+   * l'un des trous liés (clozeIndex ≥ 1). Contenu synchronisé automatique-
+   * ment ; non modifiable/supprimable/duplicable indépendamment. La
+   * progression de révision, elle, reste indépendante entre les cartes.
+   */
+  clozeOf?: string
+  /**
    * État de révision SRS, indexé par id de stratégie. Une carte peut avoir
    * une progression différente selon la stratégie utilisée pour la réviser
    * — changer de stratégie active n'écrase donc pas l'historique accumulé

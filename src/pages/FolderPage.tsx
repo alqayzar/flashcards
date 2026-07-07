@@ -119,18 +119,28 @@ export function FolderPage({ folderId }: FolderPageProps) {
     return cards.filter((c) => c.tagIds.some((id) => selected.has(id)))
   }, [cards, selected])
 
-  // Regroupe chaque originale avec sa carte inversée liée (le cas échéant) :
-  // affichées comme une seule cellule de grille, l'inversée empilée juste
-  // sous l'originale — quel que soit le nombre de colonnes de la grille.
+  // Regroupe chaque originale avec sa carte inversée et ses cartes cloze
+  // (une par trou) liées, le cas échéant : affichées comme une seule cellule
+  // de grille, empilées juste sous l'originale — quel que soit le nombre de
+  // colonnes de la grille.
   const cardGroups = useMemo(() => {
     const reversedByOriginal = new Map<string, Card>()
+    const clozeSiblingsByOriginal = new Map<string, Card[]>()
     for (const c of filteredCards) {
       if (c.reversedFrom) reversedByOriginal.set(c.reversedFrom, c)
+      if (c.clozeOf) {
+        const list = clozeSiblingsByOriginal.get(c.clozeOf) ?? []
+        list.push(c)
+        clozeSiblingsByOriginal.set(c.clozeOf, list)
+      }
     }
     return filteredCards
-      .filter((c) => !c.reversedFrom)
+      .filter((c) => !c.reversedFrom && c.clozeOf === undefined)
       .map((original) => ({
         original,
+        clozeSiblings: (clozeSiblingsByOriginal.get(original.id) ?? []).sort(
+          (a, b) => (a.clozeIndex ?? 0) - (b.clozeIndex ?? 0)
+        ),
         reversed: reversedByOriginal.get(original.id),
       }))
   }, [filteredCards])
@@ -336,40 +346,64 @@ export function FolderPage({ folderId }: FolderPageProps) {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {cardGroups.map(({ original, reversed }) => (
-            <div key={original.id} className="min-w-0">
-              <CardItem
-                card={original}
-                tags={tags}
-                activeStrategyId={activeStrategyId}
-                now={now}
-                hasReversedPair={!!reversed}
-                className={reversed ? "relative z-10" : undefined}
-                onEdit={() => openEdit(original)}
-                onDuplicate={() => handleDuplicateCard(original)}
-                onDelete={() => setDeletingCard(original)}
-                onResetDue={() => handleResetDue(original)}
-                onCreateReverse={() => handleCreateReverse(original)}
-                onDeleteReverse={() => setDeletingReverseOf(original)}
-              />
-              {reversed && (
+          {cardGroups.map(({ original, clozeSiblings, reversed }) => {
+            const stackSize = 1 + clozeSiblings.length + (reversed ? 1 : 0)
+            return (
+              <div key={original.id} className="min-w-0">
                 <CardItem
-                  card={reversed}
+                  card={original}
                   tags={tags}
                   activeStrategyId={activeStrategyId}
                   now={now}
-                  linkedOriginal={original}
-                  className="relative z-0 -mt-3 mx-1 shadow-none"
-                  onEdit={() => openEdit(reversed)}
-                  onDuplicate={() => handleDuplicateCard(reversed)}
-                  onDelete={() => setDeletingCard(reversed)}
-                  onResetDue={() => handleResetDue(reversed)}
-                  onCreateReverse={() => handleCreateReverse(reversed)}
-                  onDeleteReverse={() => setDeletingReverseOf(reversed)}
+                  hasReversedPair={!!reversed}
+                  clozeSiblingCount={clozeSiblings.length}
+                  className={stackSize > 1 ? "relative" : undefined}
+                  style={stackSize > 1 ? { zIndex: stackSize } : undefined}
+                  onEdit={() => openEdit(original)}
+                  onDuplicate={() => handleDuplicateCard(original)}
+                  onDelete={() => setDeletingCard(original)}
+                  onResetDue={() => handleResetDue(original)}
+                  onCreateReverse={() => handleCreateReverse(original)}
+                  onDeleteReverse={() => setDeletingReverseOf(original)}
                 />
-              )}
-            </div>
-          ))}
+                {clozeSiblings.map((sib, i) => (
+                  <CardItem
+                    key={sib.id}
+                    card={sib}
+                    tags={tags}
+                    activeStrategyId={activeStrategyId}
+                    now={now}
+                    clozeOriginal={original}
+                    className="relative -mt-3 mx-1 shadow-none"
+                    style={{ zIndex: stackSize - 1 - i }}
+                    onEdit={() => openEdit(sib)}
+                    onDuplicate={() => handleDuplicateCard(sib)}
+                    onDelete={() => setDeletingCard(sib)}
+                    onResetDue={() => handleResetDue(sib)}
+                    onCreateReverse={() => handleCreateReverse(sib)}
+                    onDeleteReverse={() => setDeletingReverseOf(sib)}
+                  />
+                ))}
+                {reversed && (
+                  <CardItem
+                    card={reversed}
+                    tags={tags}
+                    activeStrategyId={activeStrategyId}
+                    now={now}
+                    linkedOriginal={original}
+                    className="relative -mt-3 mx-1 shadow-none"
+                    style={{ zIndex: 0 }}
+                    onEdit={() => openEdit(reversed)}
+                    onDuplicate={() => handleDuplicateCard(reversed)}
+                    onDelete={() => setDeletingCard(reversed)}
+                    onResetDue={() => handleResetDue(reversed)}
+                    onCreateReverse={() => handleCreateReverse(reversed)}
+                    onDeleteReverse={() => setDeletingReverseOf(reversed)}
+                  />
+                )}
+              </div>
+            )
+          })}
           <button
             type="button"
             onClick={openCreate}

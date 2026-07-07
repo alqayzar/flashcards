@@ -1,4 +1,5 @@
 import { useState } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import {
   ArrowLeftRight,
   ChevronDown,
@@ -6,11 +7,13 @@ import {
   Copy,
   MoreVertical,
   Pencil,
+  SquareAsterisk,
   Trash2,
 } from "lucide-react"
 
 import type { Card as CardType, Tag } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { parseClozeBlanks } from "@/lib/cloze"
 import { useImageUrl } from "@/lib/useImageUrl"
 import { isCardDue, formatCountdown } from "@/lib/srs/engine"
 import { Button } from "@/components/ui/button"
@@ -37,7 +40,16 @@ interface CardItemProps {
   linkedOriginal?: CardType
   /** cette carte (originale) a une carte inversée liée juste en dessous */
   hasReversedPair?: boolean
+  /**
+   * Carte d'origine du groupe cloze, si `card` est l'une de ses cartes liées
+   * par trou (texte à trous). Mêmes restrictions que `linkedOriginal`.
+   */
+  clozeOriginal?: CardType
+  /** cette carte (originale d'un groupe cloze) a ce nombre de trous liés */
+  clozeSiblingCount?: number
   className?: string
+  /** ex. z-index, pour empiler plusieurs cartes liées (voir FolderPage) */
+  style?: CSSProperties
   onEdit: () => void
   onDuplicate: () => void
   onDelete: () => void
@@ -70,6 +82,47 @@ function computeDueInfo(
   const progress = span > 0 ? Math.min(1, Math.max(0, (now - start) / span)) : 1
   const countdown = formatCountdown(s.dueAt - now)
   return { due: false, progress, label: `Dans ${countdown}`, countdown }
+}
+
+/**
+ * Affiche un texte à trous en clair, avec le trou `activeIndex` (le sien)
+ * surligné/souligné, et les autres trous du même groupe dans un style plus
+ * discret (soulignage pointillé) pour rester visibles sans se confondre.
+ */
+function ClozeText({
+  text,
+  activeIndex,
+}: {
+  text: string
+  activeIndex?: number
+}) {
+  if (activeIndex === undefined) return <>{text}</>
+  const blanks = parseClozeBlanks(text)
+  const nodes: ReactNode[] = []
+  let cursor = 0
+  blanks.forEach((b, i) => {
+    nodes.push(text.slice(cursor, b.start))
+    nodes.push(
+      i === activeIndex ? (
+        <mark
+          key={i}
+          className="rounded bg-primary/25 px-0.5 text-foreground underline decoration-primary decoration-2 underline-offset-2"
+        >
+          {b.text}
+        </mark>
+      ) : (
+        <span
+          key={i}
+          className="underline decoration-dotted decoration-primary/50 underline-offset-2"
+        >
+          {b.text}
+        </span>
+      )
+    )
+    cursor = b.end
+  })
+  nodes.push(text.slice(cursor))
+  return <>{nodes}</>
 }
 
 /**
@@ -127,7 +180,10 @@ export function CardItem({
   now,
   linkedOriginal,
   hasReversedPair,
+  clozeOriginal,
+  clozeSiblingCount,
   className,
+  style,
   onEdit,
   onDuplicate,
   onDelete,
@@ -137,6 +193,8 @@ export function CardItem({
 }: CardItemProps) {
   const [expanded, setExpanded] = useState(false)
   const isReversed = !!linkedOriginal
+  const isClozeSibling = !!clozeOriginal
+  const isLinked = isReversed || isClozeSibling
   const cardTags = tags.filter((t) => card.tagIds.includes(t.id))
   const dueInfo = computeDueInfo(card, activeStrategyId, now)
   const frontImageUrl = useImageUrl(card.frontImage)
@@ -144,10 +202,11 @@ export function CardItem({
 
   return (
     <div
+      style={style}
       className={cn(
         "min-w-0 flex flex-col rounded-xl border-2 p-4 shadow-sm transition-colors",
-        isReversed
-          ? "border-border/70 bg-card/50 hover:border-primary/30"
+        isLinked
+          ? "border-border/70 bg-[color-mix(in_oklch,var(--card)_50%,var(--background)_50%)] hover:border-primary/30"
           : "border-border bg-card hover:border-primary/40",
         className
       )}
@@ -156,7 +215,17 @@ export function CardItem({
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <DueProgress dueInfo={dueInfo} />
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-1.5">
+          {(!!clozeSiblingCount || isClozeSibling) && (
+            <span title="Texte à trous : cartes liées par trou">
+              <SquareAsterisk className="size-3.5 text-muted-foreground" />
+            </span>
+          )}
+          {(hasReversedPair || isReversed) && (
+            <span title="A une carte inversée liée">
+              <ArrowLeftRight className="size-3.5 text-muted-foreground" />
+            </span>
+          )}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -182,7 +251,7 @@ export function CardItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {!isReversed && (
+              {!isLinked && (
                 <>
                   <DropdownMenuItem onClick={onEdit}>
                     <Pencil /> Modifier
@@ -204,7 +273,7 @@ export function CardItem({
               <DropdownMenuItem onClick={onResetDue}>
                 <Clock /> Réinitialiser l'échéance
               </DropdownMenuItem>
-              {!isReversed && (
+              {!isLinked && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onClick={onDelete}>
@@ -234,7 +303,7 @@ export function CardItem({
                 !expanded && "line-clamp-2"
               )}
             >
-              {card.front}
+              <ClozeText text={card.front} activeIndex={card.clozeIndex} />
             </p>
           ) : (
             <span className="text-sm text-muted-foreground italic">(vide)</span>
@@ -265,7 +334,7 @@ export function CardItem({
       </button>
 
       {cardTags.length > 0 && (
-        <div className="flex flex-nowrap gap-1 overflow-x-auto pt-1 pb-0.5">
+        <div className="no-scrollbar flex flex-nowrap gap-1 overflow-x-auto pt-1 pb-0.5">
           {cardTags.map((t) => (
             <TagChip
               key={t.id}
@@ -278,16 +347,6 @@ export function CardItem({
         </div>
       )}
 
-      {hasReversedPair && (
-        <div className="relative z-20 flex justify-center">
-          <span
-            className="absolute -bottom-7 flex size-6 items-center justify-center rounded-full border-2 border-background bg-muted text-muted-foreground shadow-sm"
-            title="A une carte inversée liée"
-          >
-            <ArrowLeftRight className="size-3.5" />
-          </span>
-        </div>
-      )}
     </div>
   )
 }

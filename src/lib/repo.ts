@@ -16,6 +16,7 @@ import {
   kvSet,
 } from "./idb"
 import { uid } from "./id"
+import { parseClozeBlanks, stripClozeBraces } from "./cloze"
 import type { Card, CardInput, Folder, Tag } from "./types"
 import type { CardReviewState } from "./srs/types"
 
@@ -111,6 +112,8 @@ export async function duplicateFolder(
           .map((tagId) => tagIdMap.get(tagId))
           .filter((tagId): tagId is string => !!tagId),
         reversedFrom: c.reversedFrom ? cardIdMap.get(c.reversedFrom) : undefined,
+        clozeOf: c.clozeOf ? cardIdMap.get(c.clozeOf) : undefined,
+        clozeIndex: c.clozeIndex,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         reviewState:
@@ -230,7 +233,11 @@ export async function listCards(folderId: string): Promise<Card[]> {
   return entries.map((e) => e.value).sort((a, b) => b.createdAt - a.createdAt)
 }
 
-/** Crée la carte inversée liée à `source` (recto/verso permutés, images partagées). */
+/**
+ * Crée la carte inversée liée à `source` (recto/verso permutés, images
+ * partagées). Si `source` est un recto à trous (cloze), le verso obtenu
+ * affiche le texte en clair (accolades `{{ }}` retirées).
+ */
 async function createReversedCard(source: Card): Promise<Card> {
   await Promise.all([
     source.frontImage ? retainImage(source.frontImage) : Promise.resolve(),
@@ -241,7 +248,7 @@ async function createReversedCard(source: Card): Promise<Card> {
     id: uid(),
     folderId: source.folderId,
     front: source.back,
-    back: source.front,
+    back: stripClozeBraces(source.front),
     frontImage: source.backImage,
     backImage: source.frontImage,
     tagIds: [...source.tagIds],
@@ -253,6 +260,33 @@ async function createReversedCard(source: Card): Promise<Card> {
   return reversed
 }
 
+/** Crée une carte liée pour le trou `clozeIndex` d'un groupe cloze. */
+async function createClozeSibling(
+  original: Card,
+  clozeIndex: number
+): Promise<Card> {
+  await Promise.all([
+    original.frontImage ? retainImage(original.frontImage) : Promise.resolve(),
+    original.backImage ? retainImage(original.backImage) : Promise.resolve(),
+  ])
+  const now = Date.now()
+  const sibling: Card = {
+    id: uid(),
+    folderId: original.folderId,
+    front: original.front,
+    back: original.back,
+    frontImage: original.frontImage,
+    backImage: original.backImage,
+    tagIds: [...original.tagIds],
+    clozeOf: original.id,
+    clozeIndex,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await kvSet(cardKey(original.folderId, sibling.id), sibling)
+  return sibling
+}
+
 /**
  * Crée une carte et, si `createReversed` est vrai, sa carte inversée liée
  * (recto/verso permutés, mêmes tags, images partagées par référence). La
@@ -260,6 +294,10 @@ async function createReversedCard(source: Card): Promise<Card> {
  * indépendamment — son contenu suit celui de l'originale (voir
  * `updateCard`/`deleteCard`/`duplicateCard`) — mais sa progression de
  * révision lui est propre.
+ *
+ * Si le recto contient des `{{trous}}`, une carte liée est en plus créée
+ * par trou au-delà du premier (même mécanisme de liaison/synchronisation
+ * que la carte inversée) — chacune masque un trou différent à l'étude.
  */
 export async function createCard(
   folderId: string,
@@ -267,18 +305,25 @@ export async function createCard(
   createReversed = false
 ): Promise<Card> {
   const now = Date.now()
+  const front = data.front.trim()
+  const blanks = parseClozeBlanks(front)
   const card: Card = {
     id: uid(),
     folderId,
-    front: data.front.trim(),
+    front,
     back: data.back.trim(),
     frontImage: data.frontImage,
     backImage: data.backImage,
     tagIds: data.tagIds,
+    clozeIndex: blanks.length > 0 ? 0 : undefined,
     createdAt: now,
     updatedAt: now,
   }
   await kvSet(cardKey(folderId, card.id), card)
+
+  for (let i = 1; i < blanks.length; i++) {
+    await createClozeSibling(card, i)
+  }
 
   if (createReversed) await createReversedCard(card)
 
@@ -309,44 +354,99 @@ async function syncMirroredImage(
 
 /**
  * Met à jour une carte. Si une carte inversée lui est liée, son contenu
- * (recto/verso/images/tags permutés) est automatiquement synchronisé — les
- * progressions de révision respectives, elles, ne sont pas affectées.
+ * (recto/verso/images/tags permutés, « {{ }} » retirés côté verso) est
+ * automatiquement synchronisé. Si c'est l'originale d'un groupe cloze
+ * (clozeIndex 0), ses cartes liées par trou sont elles aussi resynchro-
+ * nisées — recréées ou supprimées si le nombre de `{{trous}}` a changé.
+ * Les progressions de révision respectives ne sont jamais affectées.
  */
 export async function updateCard(card: Card, data: CardInput): Promise<void> {
+  const front = data.front.trim()
+  const back = data.back.trim()
+  const blanks = parseClozeBlanks(front)
+
   await kvSet(cardKey(card.folderId, card.id), {
     ...card,
-    front: data.front.trim(),
-    back: data.back.trim(),
+    front,
+    back,
     frontImage: data.frontImage,
     backImage: data.backImage,
     tagIds: data.tagIds,
+    clozeIndex:
+      card.clozeOf !== undefined
+        ? card.clozeIndex
+        : blanks.length > 0
+          ? 0
+          : undefined,
     updatedAt: Date.now(),
   })
 
   const siblings = await listCards(card.folderId)
+
   const reversed = siblings.find((c) => c.reversedFrom === card.id)
-  if (!reversed) return
+  if (reversed) {
+    const newFrontImage = data.backImage
+    const newBackImage = data.frontImage
+    await Promise.all([
+      syncMirroredImage(reversed.frontImage, newFrontImage),
+      syncMirroredImage(reversed.backImage, newBackImage),
+    ])
+    await kvSet(cardKey(reversed.folderId, reversed.id), {
+      ...reversed,
+      front: back,
+      back: stripClozeBraces(front),
+      frontImage: newFrontImage,
+      backImage: newBackImage,
+      tagIds: [...data.tagIds],
+      updatedAt: Date.now(),
+    })
+  }
 
-  const newFrontImage = data.backImage
-  const newBackImage = data.frontImage
-  await Promise.all([
-    syncMirroredImage(reversed.frontImage, newFrontImage),
-    syncMirroredImage(reversed.backImage, newBackImage),
-  ])
+  // Cartes liées par trou : uniquement synchronisées depuis l'originale
+  // d'un groupe cloze (pas depuis un trou lié, non modifiable directement).
+  if (card.clozeOf === undefined) {
+    const clozeSiblings = siblings
+      .filter((c) => c.clozeOf === card.id)
+      .sort((a, b) => (a.clozeIndex ?? 0) - (b.clozeIndex ?? 0))
+    const neededCount = Math.max(0, blanks.length - 1)
 
-  await kvSet(cardKey(reversed.folderId, reversed.id), {
-    ...reversed,
-    front: data.back.trim(),
-    back: data.front.trim(),
-    frontImage: newFrontImage,
-    backImage: newBackImage,
-    tagIds: [...data.tagIds],
-    updatedAt: Date.now(),
-  })
+    for (let i = 0; i < neededCount; i++) {
+      const existing = clozeSiblings[i]
+      if (existing) {
+        await Promise.all([
+          syncMirroredImage(existing.frontImage, data.frontImage),
+          syncMirroredImage(existing.backImage, data.backImage),
+        ])
+        await kvSet(cardKey(existing.folderId, existing.id), {
+          ...existing,
+          front,
+          back,
+          frontImage: data.frontImage,
+          backImage: data.backImage,
+          tagIds: [...data.tagIds],
+          updatedAt: Date.now(),
+        })
+      } else {
+        await createClozeSibling({ ...card, front, back, frontImage: data.frontImage, backImage: data.backImage }, i + 1)
+      }
+    }
+
+    // Trous retirés du texte : les cartes liées en trop sont supprimées.
+    for (let i = neededCount; i < clozeSiblings.length; i++) {
+      await deleteCardRaw(clozeSiblings[i])
+    }
+  }
 }
 
 /** Copie brute d'une carte (images partagées par référence). */
-async function copyCardRaw(card: Card, reversedFrom?: string): Promise<Card> {
+async function copyCardRaw(
+  card: Card,
+  overrides: {
+    reversedFrom?: string
+    clozeOf?: string
+    clozeIndex?: number
+  } = {}
+): Promise<Card> {
   await Promise.all([
     card.frontImage ? retainImage(card.frontImage) : Promise.resolve(),
     card.backImage ? retainImage(card.backImage) : Promise.resolve(),
@@ -360,7 +460,9 @@ async function copyCardRaw(card: Card, reversedFrom?: string): Promise<Card> {
     frontImage: card.frontImage,
     backImage: card.backImage,
     tagIds: [...card.tagIds],
-    reversedFrom,
+    reversedFrom: overrides.reversedFrom,
+    clozeOf: overrides.clozeOf,
+    clozeIndex: overrides.clozeIndex,
     createdAt: now,
     updatedAt: now,
   }
@@ -370,17 +472,27 @@ async function copyCardRaw(card: Card, reversedFrom?: string): Promise<Card> {
 
 /**
  * Duplique une flashcard au sein du même dossier (recto/verso, tags,
- * images, et sa carte inversée liée le cas échéant). Les images ne sont pas
- * recopiées : la copie référence le même blob (compteur de références
- * incrémenté via `retainImage`). La progression de révision n'est jamais
- * copiée : la copie démarre neuve, comme si elle n'avait jamais été étudiée.
+ * images, et son groupe lié le cas échéant : carte inversée, cartes cloze
+ * par trou). Les images ne sont pas recopiées : la copie référence le même
+ * blob (compteur de références incrémenté via `retainImage`). La
+ * progression de révision n'est jamais copiée : la copie démarre neuve,
+ * comme si elle n'avait jamais été étudiée.
  */
 export async function duplicateCard(card: Card): Promise<Card> {
   const siblings = await listCards(card.folderId)
   const reversed = siblings.find((c) => c.reversedFrom === card.id)
+  const clozeSiblings =
+    card.clozeOf === undefined
+      ? siblings
+          .filter((c) => c.clozeOf === card.id)
+          .sort((a, b) => (a.clozeIndex ?? 0) - (b.clozeIndex ?? 0))
+      : []
 
-  const newCard = await copyCardRaw(card)
-  if (reversed) await copyCardRaw(reversed, newCard.id)
+  const newCard = await copyCardRaw(card, { clozeIndex: card.clozeIndex })
+  for (const sib of clozeSiblings) {
+    await copyCardRaw(sib, { clozeOf: newCard.id, clozeIndex: sib.clozeIndex })
+  }
+  if (reversed) await copyCardRaw(reversed, { reversedFrom: newCard.id })
   return newCard
 }
 
@@ -398,15 +510,21 @@ async function deleteCardRaw(card: Card): Promise<void> {
 }
 
 /**
- * Supprime une carte. Si une carte inversée lui est liée, elle est
- * supprimée avec elle (elle ne peut pas être gérée indépendamment).
+ * Supprime une carte. Si une carte inversée et/ou des cartes cloze liées
+ * (autres trous du même groupe) lui sont liées, elles sont supprimées avec
+ * elle (elles ne peuvent pas être gérées indépendamment).
  */
 export async function deleteCard(card: Card): Promise<void> {
   const siblings = await listCards(card.folderId)
   const reversed = siblings.find((c) => c.reversedFrom === card.id)
+  const clozeSiblings =
+    card.clozeOf === undefined
+      ? siblings.filter((c) => c.clozeOf === card.id)
+      : []
 
   await deleteCardRaw(card)
   if (reversed) await deleteCardRaw(reversed)
+  for (const sib of clozeSiblings) await deleteCardRaw(sib)
 }
 
 /**
