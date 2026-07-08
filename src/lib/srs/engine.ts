@@ -311,6 +311,7 @@ export function createFastStrategy(name = "Rapide"): SrsStrategy {
       },
     ],
     createdAt: Date.now(),
+    locked: true,
   }
 }
 

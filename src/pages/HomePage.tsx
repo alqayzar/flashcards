@@ -12,6 +12,7 @@ import {
 } from "@/lib/repo"
 import { isCardDue } from "@/lib/srs/engine"
 import { ensureDefaultStrategy, getActiveStrategyId } from "@/lib/srs/repo"
+import { seedTestFolder, type TestSeedOptions } from "@/lib/testSeed"
 import { navigate } from "@/lib/useHashRoute"
 import { Button } from "@/components/ui/button"
 import { FolderCard } from "@/components/FolderCard"
@@ -51,9 +52,13 @@ export function HomePage() {
     setDialogOpen(true)
   }
 
-  async function handleSave(name: string) {
-    if (editing) await updateFolder(editing.id, { name })
-    else await createFolder(name)
+  async function handleSave(name: string, testSeed?: TestSeedOptions) {
+    if (editing) {
+      await updateFolder(editing.id, { name })
+    } else {
+      const folder = await createFolder(name)
+      if (testSeed) await seedTestFolder(folder.id, testSeed)
+    }
     await refresh()
   }
 

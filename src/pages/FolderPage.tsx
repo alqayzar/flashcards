@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Plus,
   GraduationCap,
+  Search,
   Tag as TagIcon,
   Layers,
 } from "lucide-react"
@@ -31,9 +34,12 @@ import {
   ensureFastStrategy,
   getActiveStrategyId,
 } from "@/lib/srs/repo"
-import { navigate } from "@/lib/useHashRoute"
+import { stripClozeBraces } from "@/lib/cloze"
+import { matchesSearch } from "@/lib/search"
+import { navigate, parsePageParam, useHashRoute } from "@/lib/useHashRoute"
 import { useNow } from "@/lib/useNow"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { CardItem } from "@/components/CardItem"
 import { CardDialog } from "@/components/CardDialog"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -46,12 +52,21 @@ interface FolderPageProps {
   folderId: string
 }
 
+const GROUPS_PER_PAGE = 50
+
 export function FolderPage({ folderId }: FolderPageProps) {
+  // Page courante lue depuis l'URL (#/folder/{id}?page=N), pour pouvoir
+  // partager/rafraîchir un lien vers une page précise.
+  const hash = useHashRoute()
+  const requestedPage = parsePageParam(hash)
+
   const [folder, setFolder] = useState<Folder | null | undefined>(undefined)
   const [tags, setTags] = useState<Tag[]>([])
   const [cards, setCards] = useState<Card[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [tagsOpen, setTagsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   // Empêche d'écraser le filtre persisté avant de l'avoir chargé
   const filterHydrated = useRef(false)
 
@@ -144,6 +159,34 @@ export function FolderPage({ folderId }: FolderPageProps) {
         reversed: reversedByOriginal.get(original.id),
       }))
   }, [filteredCards])
+
+  // Recherche par mots-clés (guillemets = phrase exacte) : un groupe reste
+  // visible si le terme apparaît dans n'importe laquelle de ses cartes
+  // (originale, trous cloze liés, ou carte inversée).
+  const searchedGroups = useMemo(() => {
+    if (!searchQuery.trim()) return cardGroups
+    return cardGroups.filter(({ original, clozeSiblings, reversed }) => {
+      const group = [original, ...clozeSiblings, ...(reversed ? [reversed] : [])]
+      const haystacks = group.flatMap((c) => [stripClozeBraces(c.front), c.back])
+      return matchesSearch(haystacks, searchQuery)
+    })
+  }, [cardGroups, searchQuery])
+
+  // Pagination : les cartes liées comptent avec leur originale pour 1 seul
+  // groupe. La page demandée par l'URL est plafonnée au nombre réel de
+  // pages (peut varier si le filtre ou la recherche change).
+  const totalPages = Math.max(1, Math.ceil(searchedGroups.length / GROUPS_PER_PAGE))
+  const page = Math.min(Math.max(1, requestedPage), totalPages)
+  const pageGroups = useMemo(
+    () => searchedGroups.slice((page - 1) * GROUPS_PER_PAGE, page * GROUPS_PER_PAGE),
+    [searchedGroups, page]
+  )
+
+  function goToPage(p: number) {
+    const clamped = Math.min(Math.max(1, p), totalPages)
+    navigate(`/folder/${folderId}${clamped > 1 ? `?page=${clamped}` : ""}`)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
 
   // Cartes proposées en révision : neuves ou dont l'échéance (pour la
   // stratégie active) est passée. Tant que la stratégie active n'est pas
@@ -253,7 +296,7 @@ export function FolderPage({ folderId }: FolderPageProps) {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:py-10">
+    <div className="mx-auto max-w-5xl px-4 py-8 pb-28 sm:py-10 sm:pb-28">
       {/* En-tête */}
       <button
         type="button"
@@ -293,24 +336,33 @@ export function FolderPage({ folderId }: FolderPageProps) {
                 </span>
               )}
             </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => {
+                if (searchOpen) setSearchQuery("")
+                setSearchOpen((o) => !o)
+              }}
+              title="Rechercher"
+              className={searchOpen ? "border-primary/50 text-primary" : undefined}
+            >
+              <Search className="size-4" />
+            </Button>
           </div>
         </div>
-        <div className="flex w-full gap-2 sm:w-auto">
-          <Button
-            variant="outline"
-            onClick={() => {
-              if (dueCards.length === 0) setNothingToReviewOpen(true)
-              else setStudyOpen(true)
-            }}
-            className="flex-1 border-emerald-500/40 bg-emerald-500/5 text-emerald-300 hover:border-emerald-400/60 hover:bg-emerald-500/15 hover:text-emerald-200 sm:flex-none"
-          >
-            <GraduationCap /> Réviser
-          </Button>
-          <Button onClick={openCreate} className="flex-1 sm:flex-none">
-            <Plus /> Flashcard
-          </Button>
-        </div>
       </header>
+
+      {/* Recherche par mots-clés dans le recto/verso (sur les cartes déjà filtrées par tags) */}
+      {searchOpen && (
+        <div className="mb-7">
+          <Input
+            autoFocus
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder='Rechercher… guillemets pour une phrase exacte, ex. "acide aminé"'
+          />
+        </div>
+      )}
 
       {/* Tags actifs : scroll horizontal, sans retour à la ligne */}
       {selected.size > 0 && (
@@ -327,13 +379,12 @@ export function FolderPage({ folderId }: FolderPageProps) {
               />
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => setSelected(new Set())}
-            className="shrink-0 text-xs text-primary hover:underline cursor-pointer"
-          >
-            réinitialiser
-          </button>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="mb-4">
+          <Pagination page={page} totalPages={totalPages} onNavigate={goToPage} />
         </div>
       )}
 
@@ -344,9 +395,13 @@ export function FolderPage({ folderId }: FolderPageProps) {
         <div className="rounded-xl border border-dashed border-border/70 bg-card/30 px-6 py-16 text-center text-sm text-muted-foreground">
           Aucune flashcard ne correspond aux tags sélectionnés.
         </div>
+      ) : searchedGroups.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border/70 bg-card/30 px-6 py-16 text-center text-sm text-muted-foreground">
+          Aucune flashcard ne correspond à la recherche.
+        </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {cardGroups.map(({ original, clozeSiblings, reversed }) => {
+          {pageGroups.map(({ original, clozeSiblings, reversed }) => {
             const stackSize = 1 + clozeSiblings.length + (reversed ? 1 : 0)
             return (
               <div key={original.id} className="min-w-0">
@@ -404,17 +459,11 @@ export function FolderPage({ folderId }: FolderPageProps) {
               </div>
             )
           })}
-          <button
-            type="button"
-            onClick={openCreate}
-            className="group flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-card/20 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-foreground cursor-pointer"
-          >
-            <span className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary transition-transform group-hover:scale-110">
-              <Plus className="size-5" />
-            </span>
-            <span className="text-sm font-medium">Nouvelle flashcard</span>
-          </button>
         </div>
+      )}
+
+      {totalPages > 1 && (
+        <Pagination page={page} totalPages={totalPages} onNavigate={goToPage} />
       )}
 
       {/* Dialogs */}
@@ -476,6 +525,91 @@ export function FolderPage({ folderId }: FolderPageProps) {
         }}
         cards={dueCards}
       />
+
+      {/* Barre d'actions fixe en bas de fenêtre */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-5xl gap-2 px-4 py-3">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (dueCards.length === 0) setNothingToReviewOpen(true)
+              else setStudyOpen(true)
+            }}
+            className="flex-1 border-emerald-500/40 bg-emerald-500/5 text-emerald-300 hover:border-emerald-400/60 hover:bg-emerald-500/15 hover:text-emerald-200"
+          >
+            <GraduationCap /> Réviser
+          </Button>
+          <Button onClick={openCreate} className="flex-1">
+            <Plus /> Flashcard
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Liste de pages à afficher, avec « … » pour les trous (façon pagination classique). */
+function pageList(page: number, totalPages: number): (number | "…")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1)
+  }
+  const keep = new Set([1, totalPages, page - 1, page, page + 1])
+  const sorted = [...keep].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b)
+  const result: (number | "…")[] = []
+  let prev = 0
+  for (const p of sorted) {
+    if (prev && p - prev > 1) result.push("…")
+    result.push(p)
+    prev = p
+  }
+  return result
+}
+
+function Pagination({
+  page,
+  totalPages,
+  onNavigate,
+}: {
+  page: number
+  totalPages: number
+  onNavigate: (page: number) => void
+}) {
+  return (
+    <div className="mt-6 flex items-center justify-center gap-1">
+      <Button
+        variant="outline"
+        size="icon-sm"
+        disabled={page <= 1}
+        onClick={() => onNavigate(page - 1)}
+        title="Page précédente"
+      >
+        <ChevronLeft className="size-4" />
+      </Button>
+      {pageList(page, totalPages).map((p, i) =>
+        p === "…" ? (
+          <span key={`dots-${i}`} className="px-1 text-sm text-muted-foreground">
+            …
+          </span>
+        ) : (
+          <Button
+            key={p}
+            variant={p === page ? "default" : "outline"}
+            size="icon-sm"
+            onClick={() => onNavigate(p)}
+          >
+            {p}
+          </Button>
+        )
+      )}
+      <Button
+        variant="outline"
+        size="icon-sm"
+        disabled={page >= totalPages}
+        onClick={() => onNavigate(page + 1)}
+        title="Page suivante"
+      >
+        <ChevronRight className="size-4" />
+      </Button>
     </div>
   )
 }
