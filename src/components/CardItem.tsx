@@ -2,11 +2,13 @@ import { useState } from "react"
 import type { CSSProperties, ReactNode } from "react"
 import {
   ArrowLeftRight,
+  CalendarPlus,
   ChevronDown,
   Clock,
   Copy,
   MoreVertical,
   Pencil,
+  PencilLine,
   SquareAsterisk,
   Trash2,
 } from "lucide-react"
@@ -65,6 +67,19 @@ interface DueInfo {
   label: string
   /** compte à rebours compact avant échéance (ex. « 2j 3h 45m 12s ») */
   countdown?: string
+}
+
+const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+})
+
+function formatDate(ts: number): string {
+  return dateFormatter.format(new Date(ts))
 }
 
 function computeDueInfo(
@@ -333,7 +348,7 @@ export function CardItem({
         )}
       </button>
 
-      {cardTags.length > 0 && (
+      {!isLinked && cardTags.length > 0 && (
         <div className="no-scrollbar flex flex-nowrap gap-1 overflow-x-auto pt-1 pb-0.5">
           {cardTags.map((t) => (
             <TagChip
@@ -347,6 +362,20 @@ export function CardItem({
         </div>
       )}
 
+      {expanded && (
+        <div className="mt-2 flex flex-wrap justify-end gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground/60">
+          <span className="flex items-center gap-1">
+            <CalendarPlus className="size-3" />
+            {formatDate(card.createdAt)}
+          </span>
+          {card.updatedAt !== card.createdAt && (
+            <span className="flex items-center gap-1">
+              <PencilLine className="size-3" />
+              {formatDate(card.updatedAt)}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }

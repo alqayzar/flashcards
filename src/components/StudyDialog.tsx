@@ -58,6 +58,16 @@ function choiceColor(index: number, total: number): string {
   return lerpHexColor(stops[i], stops[i + 1], segment - i)
 }
 
+/** Mélange de Fisher-Yates (ne modifie pas le tableau d'origine). */
+function shuffle<T>(arr: T[]): T[] {
+  const result = [...arr]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
+}
+
 export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
   const [deck, setDeck] = useState<Card[]>(cards)
   const [index, setIndex] = useState(0)
@@ -84,7 +94,7 @@ export function StudyDialog({ open, onOpenChange, cards }: StudyDialogProps) {
 
   useEffect(() => {
     if (open) {
-      setDeck(cardsRef.current)
+      setDeck(shuffle(cardsRef.current))
       setIndex(0)
       setRevealed(false)
       setBlankRevealed(false)

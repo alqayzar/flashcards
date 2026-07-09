@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Filter,
   Plus,
   GraduationCap,
   Search,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react"
 
 import type { Card, CardInput, Folder, Tag } from "@/lib/types"
+import { cn } from "@/lib/utils"
 import {
   addReverseCard,
   createCard,
@@ -44,6 +46,12 @@ import { CardItem } from "@/components/CardItem"
 import { CardDialog } from "@/components/CardDialog"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { InfoDialog } from "@/components/InfoDialog"
+import {
+  EMPTY_SEARCH_DATE_RANGE,
+  hasActiveDateRange,
+  SearchFilterDialog,
+  type SearchDateRange,
+} from "@/components/SearchFilterDialog"
 import { StudyDialog } from "@/components/StudyDialog"
 import { TagChip } from "@/components/TagChip"
 import { TagsDialog } from "@/components/TagsDialog"
@@ -67,6 +75,19 @@ export function FolderPage({ folderId }: FolderPageProps) {
   const [tagsOpen, setTagsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchFilterOpen, setSearchFilterOpen] = useState(false)
+  const [searchTagIds, setSearchTagIds] = useState<Set<string>>(new Set())
+  const [searchDateRange, setSearchDateRange] = useState<SearchDateRange>(
+    EMPTY_SEARCH_DATE_RANGE
+  )
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
+  const [searchWholeWord, setSearchWholeWord] = useState(false)
+  // À l'ouverture de la recherche, son filtre de tags démarre aligné sur le
+  // filtre de tags déjà actif de la page (modifiable ensuite indépendamment).
+  useEffect(() => {
+    if (searchOpen) setSearchTagIds(new Set(selected))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOpen])
   // Empêche d'écraser le filtre persisté avant de l'avoir chargé
   const filterHydrated = useRef(false)
 
@@ -160,17 +181,81 @@ export function FolderPage({ folderId }: FolderPageProps) {
       }))
   }, [filteredCards])
 
-  // Recherche par mots-clés (guillemets = phrase exacte) : un groupe reste
-  // visible si le terme apparaît dans n'importe laquelle de ses cartes
-  // (originale, trous cloze liés, ou carte inversée).
+  const hasActiveSearchFilters =
+    searchTagIds.size > 0 ||
+    hasActiveDateRange(searchDateRange) ||
+    searchCaseSensitive ||
+    searchWholeWord
+  const isSearchActive = searchQuery.trim() !== "" || hasActiveSearchFilters
+
+  const searchDateBounds = useMemo(
+    () => ({
+      createdFrom: searchDateRange.createdFrom
+        ? new Date(searchDateRange.createdFrom).getTime()
+        : undefined,
+      createdTo: searchDateRange.createdTo
+        ? new Date(searchDateRange.createdTo).getTime()
+        : undefined,
+      updatedFrom: searchDateRange.updatedFrom
+        ? new Date(searchDateRange.updatedFrom).getTime()
+        : undefined,
+      updatedTo: searchDateRange.updatedTo
+        ? new Date(searchDateRange.updatedTo).getTime()
+        : undefined,
+    }),
+    [searchDateRange]
+  )
+
+  // Vrai si `c` satisfait à la fois le mot-clé et les filtres actifs
+  // (tags, intervalle de création/modification).
+  function cardMatchesSearch(c: Card): boolean {
+    if (
+      searchQuery.trim() &&
+      !matchesSearch([stripClozeBraces(c.front), c.back], searchQuery, {
+        caseSensitive: searchCaseSensitive,
+        wholeWord: searchWholeWord,
+      })
+    ) {
+      return false
+    }
+    if (searchTagIds.size > 0 && !c.tagIds.some((id) => searchTagIds.has(id))) {
+      return false
+    }
+    const b = searchDateBounds
+    if (b.createdFrom !== undefined && c.createdAt < b.createdFrom) return false
+    if (b.createdTo !== undefined && c.createdAt > b.createdTo) return false
+    if (b.updatedFrom !== undefined && c.updatedAt < b.updatedFrom) return false
+    if (b.updatedTo !== undefined && c.updatedAt > b.updatedTo) return false
+    return true
+  }
+
+  // Un groupe reste visible si l'une de ses cartes (originale, trous cloze
+  // liés, ou carte inversée) correspond à la recherche/aux filtres actifs.
   const searchedGroups = useMemo(() => {
-    if (!searchQuery.trim()) return cardGroups
+    if (!isSearchActive) return cardGroups
     return cardGroups.filter(({ original, clozeSiblings, reversed }) => {
       const group = [original, ...clozeSiblings, ...(reversed ? [reversed] : [])]
-      const haystacks = group.flatMap((c) => [stripClozeBraces(c.front), c.back])
-      return matchesSearch(haystacks, searchQuery)
+      return group.some(cardMatchesSearch)
     })
-  }, [cardGroups, searchQuery])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cardGroups,
+    isSearchActive,
+    searchQuery,
+    searchTagIds,
+    searchDateBounds,
+    searchCaseSensitive,
+    searchWholeWord,
+  ])
+
+  function toggleSearchTag(id: string) {
+    setSearchTagIds((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   // Pagination : les cartes liées comptent avec leur originale pour 1 seul
   // groupe. La page demandée par l'URL est plafonnée au nombre réel de
@@ -340,7 +425,13 @@ export function FolderPage({ folderId }: FolderPageProps) {
               variant="outline"
               size="icon-sm"
               onClick={() => {
-                if (searchOpen) setSearchQuery("")
+                if (searchOpen) {
+                  setSearchQuery("")
+                  setSearchTagIds(new Set())
+                  setSearchDateRange(EMPTY_SEARCH_DATE_RANGE)
+                  setSearchCaseSensitive(false)
+                  setSearchWholeWord(false)
+                }
                 setSearchOpen((o) => !o)
               }}
               title="Rechercher"
@@ -354,13 +445,29 @@ export function FolderPage({ folderId }: FolderPageProps) {
 
       {/* Recherche par mots-clés dans le recto/verso (sur les cartes déjà filtrées par tags) */}
       {searchOpen && (
-        <div className="mb-7">
+        <div className="mb-7 flex items-center gap-2">
           <Input
             autoFocus
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder='Rechercher… guillemets pour une phrase exacte, ex. "acide aminé"'
+            className="flex-1"
           />
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSearchFilterOpen(true)}
+            title="Filtres"
+            className={cn(
+              "relative shrink-0 overflow-visible",
+              hasActiveSearchFilters && "border-primary/50 text-primary"
+            )}
+          >
+            <Filter className="size-4" />
+            {hasActiveSearchFilters && (
+              <span className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-background bg-primary" />
+            )}
+          </Button>
         </div>
       )}
 
@@ -402,7 +509,19 @@ export function FolderPage({ folderId }: FolderPageProps) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pageGroups.map(({ original, clozeSiblings, reversed }) => {
-            const stackSize = 1 + clozeSiblings.length + (reversed ? 1 : 0)
+            // En recherche active, l'originale est toujours affichée (pour
+            // donner le contexte), mais seules les cartes liées qui
+            // correspondent elles-mêmes à la recherche/aux filtres sont
+            // montrées — pas tout le reste du groupe.
+            const visibleClozeSiblings = isSearchActive
+              ? clozeSiblings.filter(cardMatchesSearch)
+              : clozeSiblings
+            const visibleReversed = isSearchActive
+              ? reversed && cardMatchesSearch(reversed)
+                ? reversed
+                : undefined
+              : reversed
+            const stackSize = 1 + visibleClozeSiblings.length + (visibleReversed ? 1 : 0)
             return (
               <div key={original.id} className="min-w-0">
                 <CardItem
@@ -421,7 +540,7 @@ export function FolderPage({ folderId }: FolderPageProps) {
                   onCreateReverse={() => handleCreateReverse(original)}
                   onDeleteReverse={() => setDeletingReverseOf(original)}
                 />
-                {clozeSiblings.map((sib, i) => (
+                {visibleClozeSiblings.map((sib, i) => (
                   <CardItem
                     key={sib.id}
                     card={sib}
@@ -439,21 +558,21 @@ export function FolderPage({ folderId }: FolderPageProps) {
                     onDeleteReverse={() => setDeletingReverseOf(sib)}
                   />
                 ))}
-                {reversed && (
+                {visibleReversed && (
                   <CardItem
-                    card={reversed}
+                    card={visibleReversed}
                     tags={tags}
                     activeStrategyId={activeStrategyId}
                     now={now}
                     linkedOriginal={original}
                     className="relative -mt-3 mx-1 shadow-none"
                     style={{ zIndex: 0 }}
-                    onEdit={() => openEdit(reversed)}
-                    onDuplicate={() => handleDuplicateCard(reversed)}
-                    onDelete={() => setDeletingCard(reversed)}
-                    onResetDue={() => handleResetDue(reversed)}
-                    onCreateReverse={() => handleCreateReverse(reversed)}
-                    onDeleteReverse={() => setDeletingReverseOf(reversed)}
+                    onEdit={() => openEdit(visibleReversed)}
+                    onDuplicate={() => handleDuplicateCard(visibleReversed)}
+                    onDelete={() => setDeletingCard(visibleReversed)}
+                    onResetDue={() => handleResetDue(visibleReversed)}
+                    onCreateReverse={() => handleCreateReverse(visibleReversed)}
+                    onDeleteReverse={() => setDeletingReverseOf(visibleReversed)}
                   />
                 )}
               </div>
@@ -467,6 +586,25 @@ export function FolderPage({ folderId }: FolderPageProps) {
       )}
 
       {/* Dialogs */}
+      <SearchFilterDialog
+        open={searchFilterOpen}
+        onOpenChange={setSearchFilterOpen}
+        tags={tags}
+        selectedTagIds={searchTagIds}
+        onToggleTag={toggleSearchTag}
+        dateRange={searchDateRange}
+        onChangeDateRange={setSearchDateRange}
+        caseSensitive={searchCaseSensitive}
+        onChangeCaseSensitive={setSearchCaseSensitive}
+        wholeWord={searchWholeWord}
+        onChangeWholeWord={setSearchWholeWord}
+        onReset={() => {
+          setSearchTagIds(new Set())
+          setSearchDateRange(EMPTY_SEARCH_DATE_RANGE)
+          setSearchCaseSensitive(false)
+          setSearchWholeWord(false)
+        }}
+      />
       <TagsDialog
         open={tagsOpen}
         onOpenChange={setTagsOpen}

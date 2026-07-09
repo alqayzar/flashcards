@@ -50,6 +50,7 @@ export function CardDialog({
   const [tagIds, setTagIds] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
   const [createReversed, setCreateReversed] = useState(false)
+  const [imagesEnabled, setImagesEnabled] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // `card`/`defaultTagIds` peuvent changer de référence à chaque re-render du
@@ -73,6 +74,9 @@ export function CardDialog({
       setTagIds(card?.tagIds ?? defaultTagIds ?? [])
       setNewTag("")
       setCreateReversed(false)
+      // Activées d'office si la carte a déjà une image (édition), pour ne
+      // pas cacher un champ qui contient déjà quelque chose.
+      setImagesEnabled(!!(card?.frontImage || card?.backImage))
     }
   }, [open])
 
@@ -157,10 +161,12 @@ export function CardDialog({
                 onChange={(e) => setFront(e.target.value)}
                 placeholder="La question, le terme, le mot…"
               />
-              <ImageField
-                value={frontImg}
-                onChange={setFrontImg}
-              />
+              {imagesEnabled && (
+                <ImageField
+                  value={frontImg}
+                  onChange={setFrontImg}
+                />
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="back">Verso</Label>
@@ -170,10 +176,12 @@ export function CardDialog({
                 onChange={(e) => setBack(e.target.value)}
                 placeholder="La réponse, la définition…"
               />
-              <ImageField
-                value={backImg}
-                onChange={setBackImg}
-              />
+              {imagesEnabled && (
+                <ImageField
+                  value={backImg}
+                  onChange={setBackImg}
+                />
+              )}
             </div>
 
             <div className="grid gap-2">
@@ -217,6 +225,16 @@ export function CardDialog({
               )}
             </div>
 
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-card/40 p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={imagesEnabled}
+                onChange={(e) => setImagesEnabled(e.target.checked)}
+                className="mt-0.5 size-4 accent-primary"
+              />
+              <span>Activer les images</span>
+            </label>
+
             {!card && (
               <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-card/40 p-3 text-sm">
                 <input
@@ -226,11 +244,9 @@ export function CardDialog({
                   className="mt-0.5 size-4 accent-primary"
                 />
                 <span>
-                  Créer aussi la carte inversée
+                  Créer la carte inversée
                   <span className="block text-xs text-muted-foreground">
-                    Recto et verso permutés. Elle apparaîtra juste après
-                    celle-ci, liée : la modifier ici la met aussi à jour, mais
-                    sa progression de révision lui est propre.
+                    Recto et verso permutés.
                   </span>
                 </span>
               </label>
